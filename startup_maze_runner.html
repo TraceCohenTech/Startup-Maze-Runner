@@ -1,0 +1,367 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Startup Maze Runner</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+            display: block;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="800" height="400"></canvas>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const GAME_WIDTH = 800;
+        const GAME_HEIGHT = 400;
+
+        let gameTime = 0;
+        let highScore = localStorage.getItem('highScore') || 0;
+        let gameState = 'start'; // 'start', 'playing', 'gameOver'
+
+        class Player {
+            constructor() {
+                this.width = 30;
+                this.height = 50;
+                this.x = 50;
+                this.y = GAME_HEIGHT / 2;
+                this.vy = 0;
+                this.liftPower = -0.5;
+                this.gravity = 0.2;
+                this.runway = 100;
+                this.isSpeedBoosted = false;
+                this.speedBoostTime = 0;
+                this.isInvincible = false;
+                this.invincibilityTime = 0;
+            }
+
+            fly() {
+                this.vy += this.liftPower;
+            }
+
+            update() {
+                this.vy += this.gravity;
+                this.y += this.vy;
+
+                if (this.y < 0) {
+                    this.y = 0;
+                    this.vy = 0;
+                } else if (this.y > GAME_HEIGHT - this.height) {
+                    this.y = GAME_HEIGHT - this.height;
+                    this.vy = 0;
+                }
+
+                this.runway -= 0.05;
+            }
+
+            draw() {
+                if (this.isInvincible) {
+                    ctx.fillStyle = 'rgba(255, 255, 0, 0.5)';
+                    ctx.beginPath();
+                    ctx.arc(this.x + this.width / 2, this.y + this.height / 2, 
+                            Math.max(this.width, this.height) / 2 + 5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                
+                ctx.fillStyle = 'blue';
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+                
+                if (this.isSpeedBoosted) {
+                    ctx.strokeStyle = 'yellow';
+                    ctx.lineWidth = 2;
+                    for (let i = 0; i < 3; i++) {
+                        ctx.beginPath();
+                        ctx.moveTo(this.x - 10 - i * 5, this.y + 5);
+                        ctx.lineTo(this.x - 20 - i * 5, this.y + this.height - 5);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        class GameObject {
+            constructor(color, width, height) {
+                this.width = width;
+                this.height = height;
+                this.x = GAME_WIDTH;
+                this.y = Math.random() * (GAME_HEIGHT - this.height);
+                this.color = color;
+            }
+
+            update() {
+                this.x -= player.isSpeedBoosted ? 8 : 5;
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+        }
+
+        class Obstacle extends GameObject {
+            constructor(type) {
+                super('red', 30, 50);
+                this.type = type || 'normal';
+                if (this.type === 'moving') {
+                    this.vy = Math.random() * 4 - 2;
+                } else if (this.type === 'large') {
+                    this.width = 50;
+                    this.height = 80;
+                }
+            }
+
+            update() {
+                super.update();
+                if (this.type === 'moving') {
+                    this.y += this.vy;
+                    if (this.y <= 0 || this.y + this.height >= GAME_HEIGHT) {
+                        this.vy *= -1;
+                    }
+                }
+            }
+
+            draw() {
+                ctx.fillStyle = this.type === 'large' ? 'darkred' : 'red';
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+        }
+
+        class Coin extends GameObject {
+            constructor() {
+                super('gold', 20, 20);
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x + this.width/2, this.y + this.height/2, this.width/2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        class TermSheet extends GameObject {
+            constructor() {
+                super('green', 40, 40);
+            }
+        }
+
+        class Coffee extends GameObject {
+            constructor() {
+                super('brown', 30, 30);
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+                
+                ctx.beginPath();
+                ctx.moveTo(this.x + 5, this.y + 10);
+                ctx.lineTo(this.x + 5, this.y + 25);
+                ctx.quadraticCurveTo(this.x + 15, this.y + 30, this.x + 25, this.y + 25);
+                ctx.lineTo(this.x + 25, this.y + 10);
+                ctx.quadraticCurveTo(this.x + 15, this.y + 5, this.x + 5, this.y + 10);
+                ctx.strokeStyle = 'white';
+                ctx.stroke();
+            }
+        }
+
+        class Star extends GameObject {
+            constructor() {
+                super('yellow', 30, 30);
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                for (let i = 0; i < 5; i++) {
+                    const angle = (i * 4 * Math.PI) / 5 - Math.PI / 2;
+                    const x = this.x + 15 + 15 * Math.cos(angle);
+                    const y = this.y + 15 + 15 * Math.sin(angle);
+                    ctx.lineTo(x, y);
+                }
+                ctx.closePath();
+                ctx.fill();
+            }
+        }
+
+        const player = new Player();
+        let gameObjects = [];
+        let score = 0;
+        let coinsCollected = 0;
+        let termSheetThreshold = 5;
+
+        function spawnGameObject() {
+            const rand = Math.random();
+            if (rand < 0.02 + (gameTime / 10000)) {
+                const obstacleType = Math.random();
+                if (obstacleType < 0.6) {
+                    gameObjects.push(new Obstacle('normal'));
+                } else if (obstacleType < 0.9) {
+                    gameObjects.push(new Obstacle('moving'));
+                } else {
+                    gameObjects.push(new Obstacle('large'));
+                }
+            } else if (rand < 0.05 + (gameTime / 15000)) {
+                gameObjects.push(new Coin());
+            } else if (rand < 0.055 + (gameTime / 20000)) {
+                gameObjects.push(new TermSheet());
+            } else if (rand < 0.06 + (gameTime / 25000)) {
+                gameObjects.push(new Coffee());
+            } else if (rand < 0.065 + (gameTime / 30000)) {
+                gameObjects.push(new Star());
+            }
+        }
+
+        function checkCollisions() {
+            gameObjects = gameObjects.filter(obj => {
+                if (
+                    player.x < obj.x + obj.width &&
+                    player.x + player.width > obj.x &&
+                    player.y < obj.y + obj.height &&
+                    player.y + player.height > obj.y
+                ) {
+                    if (obj instanceof Obstacle) {
+                        if (!player.isInvincible) {
+                            player.runway -= 20;
+                        }
+                        return false;
+                    } else if (obj instanceof Coin) {
+                        score += 10;
+                        coinsCollected++;
+                        player.runway += 2;
+                        return false;
+                    } else if (obj instanceof TermSheet) {
+                        player.runway += 20;
+                        return false;
+                    } else if (obj instanceof Coffee) {
+                        player.isSpeedBoosted = true;
+                        player.speedBoostTime = 5000;
+                        return false;
+                    } else if (obj instanceof Star) {
+                        player.isInvincible = true;
+                        player.invincibilityTime = 5000;
+                        return false;
+                    }
+                }
+                return obj.x > -obj.width;
+            });
+        }
+
+        function drawStartScreen() {
+            ctx.fillStyle = 'black';
+            ctx.font = '40px Arial';
+            ctx.fillText('Startup Maze Runner', GAME_WIDTH / 2 - 180, GAME_HEIGHT / 2 - 40);
+            ctx.font = '20px Arial';
+            ctx.fillText('Press Space to Start', GAME_WIDTH / 2 - 80, GAME_HEIGHT / 2 + 20);
+            ctx.fillText(`High Score: ${highScore}`, GAME_WIDTH / 2 - 60, GAME_HEIGHT / 2 + 60);
+        }
+
+        function drawGameOverScreen() {
+            ctx.fillStyle = 'red';
+            ctx.font = '40px Arial';
+            ctx.fillText('Game Over! Startup Bankrupt!', GAME_WIDTH / 2 - 200, GAME_HEIGHT / 2 - 40);
+            ctx.fillStyle = 'black';
+            ctx.font = '20px Arial';
+            ctx.fillText(`Final Score: ${score}`, GAME_WIDTH / 2 - 60, GAME_HEIGHT / 2 + 20);
+            ctx.fillText(`High Score: ${highScore}`, GAME_WIDTH / 2 - 60, GAME_HEIGHT / 2 + 60);
+            ctx.fillText('Press Space to Restart', GAME_WIDTH / 2 - 80, GAME_HEIGHT / 2 + 100);
+        }
+
+        function gameLoop() {
+            ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+            if (gameState === 'start') {
+                drawStartScreen();
+            } else if (gameState === 'playing') {
+                gameTime++;
+
+                if (player.runway > 0) {
+                    if (keys.Space) {
+                        player.fly();
+                    }
+                    player.update();
+                    
+                    if (player.speedBoostTime > 0) {
+                        player.speedBoostTime -= 16;
+                        if (player.speedBoostTime <= 0) {
+                            player.isSpeedBoosted = false;
+                        }
+                    }
+                    
+                    if (player.invincibilityTime > 0) {
+                        player.invincibilityTime -= 16;
+                        if (player.invincibilityTime <= 0) {
+                            player.isInvincible = false;
+                        }
+                    }
+                    
+                    spawnGameObject();
+                    gameObjects.forEach(obj => obj.update());
+                    checkCollisions();
+                } else {
+                    gameState = 'gameOver';
+                    if (score > highScore) {
+                        highScore = score;
+                        localStorage.setItem('highScore', highScore);
+                    }
+                }
+
+                player.draw();
+                gameObjects.forEach(obj => obj.draw());
+
+                ctx.fillStyle = 'black';
+                ctx.font = '20px Arial';
+                ctx.fillText(`Score: ${score}`, 10, 30);
+                ctx.fillText(`Runway: ${Math.max(0, Math.floor(player.runway))}`, 10, 60);
+                ctx.fillText(`Coins to next Term Sheet: ${termSheetThreshold - coinsCollected}`, 10, 90);
+
+                if (player.isSpeedBoosted) {
+                    ctx.fillText('Speed Boost!', GAME_WIDTH - 150, 30);
+                }
+                if (player.isInvincible) {
+                    ctx.fillText('Invincible!', GAME_WIDTH - 150, 60);
+                }
+            } else if (gameState === 'gameOver') {
+                drawGameOverScreen();
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        const keys = {};
+
+        document.addEventListener('keydown', (event) => {
+            keys[event.code] = true;
+            if (event.code === 'Space' && (gameState === 'start' || gameState === 'gameOver')) {
+                gameState = 'playing';
+                resetGame();
+            }
+        });
+
+        document.addEventListener('keyup', (event) => {
+            keys[event.code] = false;
+        });
+
+        function resetGame() {
+            player.y = GAME_HEIGHT / 2;
+            player.vy = 0;
+            player.runway = 100;
+            player.isSpeedBoosted = false;
+            player.isInvincible = false;
+            gameObjects = [];
+            score = 0;
+            coinsCollected = 0;
+            gameTime = 0;
+        }
+
+        gameLoop();
+    </script>
+</body>
+</html>
